@@ -34,8 +34,10 @@ def tool_from_dict(raw: dict[str, Any]) -> MCPTool:
     name = raw.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError(f"tool dict must have a non-empty 'name' string; got {name!r}")
+    raw_input = raw.get("inputSchema")
+    inputSchema = dict(raw_input) if isinstance(raw_input, dict) else {}
     return MCPTool(
         name=name,
         description=str(raw.get("description", "") or ""),
-        inputSchema=dict(raw.get("inputSchema") or {}),
+        inputSchema=inputSchema,
     )

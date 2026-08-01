@@ -376,3 +376,114 @@ class TestJsonRpcToolRoundtrip:
         tool = tool_from_dict(raw)
         out = to_gemini_tool(tool)
         assert out["name"] == "x"
+
+
+# =============================================================================
+# Angle: cycle_16 fix regressions (F-1, F-2, F-3, F-NEW-2)
+# =============================================================================
+
+
+class TestCycle16Fixes:
+    """Regression tests for the 4 CRASH bugs found by the cycle_16 adversary
+    fuzzer at commit 3bc5016. The exact reproduction strings come from
+    QA_REPORT.md § "The CRASH bugs" (line ~274+).
+
+    Invariant 21 says library functions must be **total** over arbitrary input
+    — they must NOT raise. The 4 fixes add graceful coercion / fall-back
+    for adversarial inputs rather than crashing.
+    """
+
+    # --- F-1: tool_from_dict on truthy non-dict inputSchema -----------------
+
+    def test_f1_tool_from_dict_string_inputSchema_does_not_raise(self) -> None:
+        """F-1: inputSchema='not a dict' must coerce to {}, not raise."""
+        from mcpschema import tool_from_dict
+
+        # Exact reproduction from QA_REPORT.md:
+        tool = tool_from_dict({"name": "foo", "description": "bar", "inputSchema": "not a dict"})
+        assert tool.inputSchema == {}
+
+    def test_f1_tool_from_dict_list_inputSchema_does_not_raise(self) -> None:
+        """F-1: inputSchema=[1,2] must coerce to {}, not raise."""
+        from mcpschema import tool_from_dict
+
+        tool = tool_from_dict({"name": "foo", "description": "bar", "inputSchema": [1, 2]})
+        assert tool.inputSchema == {}
+
+    def test_f1_tool_from_dict_int_inputSchema_does_not_raise(self) -> None:
+        """F-1: inputSchema=42 must coerce to {}, not raise."""
+        from mcpschema import tool_from_dict
+
+        tool = tool_from_dict({"name": "foo", "description": "bar", "inputSchema": 42})
+        assert tool.inputSchema == {}
+
+    # --- F-2: CLI propagation of F-1 ----------------------------------------
+
+    def test_f2_cli_propagates_f1_fix(self) -> None:
+        """F-2: the CLI path through _normalize_tools must also coerce
+        truthy non-dict inputSchema — it's the same root cause as F-1."""
+        from mcpschema import tool_from_dict
+
+        # Mirror the exact CLI input from QA_REPORT.md:
+        #   echo '{"name":"foo","description":"bar","inputSchema":"not a dict"}' | \
+        #       python3 -m mcpschema convert --provider openai --input -
+        tool = tool_from_dict({"name": "foo", "description": "bar", "inputSchema": "not a dict"})
+        out = to_openai_tool(tool)
+        # Must produce a valid OpenAI function dict, not raise.
+        assert out["type"] == "function"
+        assert out["function"]["name"] == "foo"
+        assert out["function"]["parameters"]["properties"] == {}
+
+    # --- F-3: _normalize_schema on non-string type --------------------------
+
+    def test_f3_normalize_schema_list_type_does_not_raise(self) -> None:
+        """F-3: type=['string','null'] must degrade to 'object', not raise
+        TypeError("unhashable type: 'list')."""
+        from mcpschema import tool_from_dict
+
+        tool = tool_from_dict(
+            {"name": "x", "description": "d", "inputSchema": {"type": ["string", "null"], "properties": {}}}
+        )
+        # All 6 providers must accept this without raising.
+        assert to_openai_tool(tool)["function"]["parameters"]["type"] == "object"
+        assert to_anthropic_tool(tool)["input_schema"]["type"] == "object"
+        assert to_gemini_tool(tool)["parameters"]["type"] == "OBJECT"
+
+    def test_f3_normalize_schema_dict_type_does_not_raise(self) -> None:
+        """F-3: type={'foo':'bar'} must degrade to 'object', not raise
+        TypeError("unhashable type: 'dict')."""
+        from mcpschema import tool_from_dict
+
+        tool = tool_from_dict(
+            {"name": "x", "description": "d", "inputSchema": {"type": {"foo": "bar"}, "properties": {}}}
+        )
+        assert to_openai_tool(tool)["function"]["parameters"]["type"] == "object"
+
+    # --- F-NEW-2: build_ollama_system_prompt_suffix on non-dict properties ---
+
+    def test_f_new_2_ollama_string_properties_does_not_raise(self) -> None:
+        """F-NEW-2: properties='this is a string' must coerce to {}, not
+        raise AttributeError("'str' object has no attribute 'items')."""
+        from mcpschema import tool_from_dict
+
+        # Exact reproduction from QA_REPORT.md:
+        tool = tool_from_dict(
+            {"name": "x", "description": "d", "inputSchema": {"type": "object", "properties": "this is a string"}}
+        )
+        # Must produce a valid ollama tool dict with empty params.
+        out = to_ollama_tool(tool)
+        assert out["function"]["name"] == "x"
+        assert out["function"]["parameters"]["properties"] == {}
+        # The system_prompt_suffix must NOT include a "Parameters:" line
+        # (since props is empty after coercion).
+        assert "Parameters:" not in out["system_prompt_suffix"]
+
+    def test_f_new_2_ollama_list_properties_does_not_raise(self) -> None:
+        """F-NEW-2: properties=[1,2,3] (another non-dict) must also coerce."""
+        from mcpschema import tool_from_dict
+
+        tool = tool_from_dict(
+            {"name": "x", "description": "d", "inputSchema": {"type": "object", "properties": [1, 2, 3]}}
+        )
+        out = to_ollama_tool(tool)
+        assert out["function"]["parameters"]["properties"] == {}

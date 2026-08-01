@@ -103,7 +103,10 @@ def _normalize_property(prop: Any, type_map: dict[str, str]) -> dict[str, Any]:
 
 def _normalize_schema(schema: dict[str, Any], type_map: dict[str, str]) -> dict[str, Any]:
     """Normalize the top-level inputSchema for a given provider."""
-    out: dict[str, Any] = {"type": type_map.get(schema.get("type", "object"), type_map["object"])}
+    raw_type = schema.get("type", "object")
+    if not isinstance(raw_type, str):
+        raw_type = "object"
+    out: dict[str, Any] = {"type": type_map.get(raw_type, type_map["object"])}
 
     props = schema.get("properties")
     if isinstance(props, dict):
@@ -151,6 +154,8 @@ def build_ollama_system_prompt_suffix(tool: Any) -> str:
     desc = _get_description(tool)
     schema = _get_schema(tool)
     props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    if not isinstance(props, dict):
+        props = {}
     required = schema.get("required", []) if isinstance(schema, dict) else []
 
     lines = [f"Tool: {name}"]
