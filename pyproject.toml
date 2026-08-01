@@ -1,0 +1,61 @@
+[project]
+name = "mcpschema"
+version = "0.1.0"
+description = "Convert MCP tool schemas to OpenAI, Anthropic, Gemini, and other LLM provider formats — zero dependencies"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Repo Factory", email = "noreply@example.com"},
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "tool-calling",
+    "schema-conversion",
+    "llm-providers",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+# Zero runtime dependencies by design — see spec.md acceptance criterion #19.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+mcpschema = "mcpschema.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/prasad-a-abhishek/mcpschema"
+Repository = "https://github.com/prasad-a-abhishek/mcpschema"
+Issues = "https://github.com/prasad-a-abhishek/mcpschema/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mcpschema = ["py.typed", "*.pyi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
