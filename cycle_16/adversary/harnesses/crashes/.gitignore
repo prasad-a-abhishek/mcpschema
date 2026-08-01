@@ -1,0 +1,3 @@
+# Generated crash files — keep the dir, reject the contents.
+*.bin
+*.crash.json
