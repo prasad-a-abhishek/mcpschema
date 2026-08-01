@@ -1,261 +1,124 @@
-# FUZZING_REPORT.md — mcpschema cycle_16 adversarial fuzzing
+# FUZZING_REPORT.md — mcpschema cycle_16 re-fuzz (post-fix)
 
-**Fuzzer:** 5,000+-mutation adversarial campaign across 3 surfaces
-**Repo:** `/root/projects/mcpschema` — commit `20fb825`
-**Date:** 2026-08-01
-**Fuzzer:** `fuzz_adversary.py` (in-repo)
-
----
-
-## VERDICT: NEEDS_REMEDIATION
-
-The library has **3 confirmed crash bugs** (F-1 CRASH, F-2 CLI, F-3 CRASH) and **2 behavioral defects** (F-4, F-5). All crashes are unhandled exceptions that propagate to callers. Fix before shipping.
-
----
-
-## Summary of Findings
-
-| ID | Severity | Surface | Description |
-|----|----------|---------|-------------|
-| F-1 | **CRASH** | Core — `tool_from_dict` | `dict(string)` crash when `inputSchema` is a non-empty string |
-| F-2 | **CRASH** | CLI — `_normalize_tools` | Same F-1 crash propagates into CLI via `tool_from_dict` call |
-| F-3 | **CRASH** | Core — `_normalize_schema` | `TypeError: unhashable type: 'list'` when `type` field is a list |
-| F-4 | LOW | Core — `_normalize_property` | Non-dict `items`/`properties` silently ignored — silent data loss |
-| F-5 | LOW | Core — `_resolve_provider` | Provider name with trailing whitespace bypasses validation |
+**Run**: kanban task `t_51ba182a`, run 3447
+**Repo**: `/root/projects/mcpschema`
+**Commit**: `25cfd7a9cb0159edb0b16e5cde68b4020653598b` (HEAD)
+**Prior fuzz report**: `3bc5016` (commit of the original NEEDS_REMEDIATION
+report with 3 CRASH bugs). See `git show 3bc5016:FUZZING_REPORT.md`.
+**Re-fuzz script**: `/tmp/refuzz.py` (custom, written fresh for this re-QA
+to push every prior CRASH repro + the standard adversarial input list
+through the public API and the CLI).
+**Date**: 2026-08-01
 
 ---
 
-## F-1 (CRASH) — `tool_from_dict`: `dict(string)` crash
+## VERDICT: SHIP-READY
 
-### Severity
-CRASH — unhandled `ValueError: dictionary update sequence element #0 has length 1; 2 is required`
-
-### Trigger
-```python
-from mcpschema import tool_from_dict
-tool_from_dict({'name': 'foo', 'inputSchema': 'not_a_dict'})
-#                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ truthy string
-```
-
-### Root Cause
-`tool.py` line 40:
-```python
-inputSchema=dict(raw.get("inputSchema") or {}),
-```
-
-When `inputSchema` is a non-empty string (e.g., `"not_a_dict"`), the expression `raw.get("inputSchema") or {}` evaluates to the string (because non-empty strings are truthy). Then `dict("not_a_dict")` is called. Python's `dict()` constructor on a string tries to interpret it as an iterable of 2-element `(key, value)` pairs — so `"not_a_dict"` becomes `[('n','o'), ('t','_'), ...]`. Single-char strings produce "dictionary update sequence element #0 has length 1; 2 is required".
-
-### Fix
-```python
-inputSchema=dict(raw.get("inputSchema")) if isinstance(raw.get("inputSchema"), dict) else {},
-```
-
-### Fuzzer mutation that triggered
-The `make_fuzz_tool()` generator created `{"name": "foo", "inputSchema": "not_a_dict"}` and the adapter functions called `tool_from_dict` internally, causing the crash to propagate to all 6 provider adapters.
+The 3 prior CRASH bugs (F-1, F-2, F-3) plus the 1 NEW CRASH (F-NEW-2
+from prior QA) are all silent on every public API path. The re-fuzz
+campaign of 14 inputs × ~7 paths found **0 new findings**.
 
 ---
 
-## F-2 (CRASH) — CLI `_normalize_tools`: Same `tool_from_dict` crash propagates
+## Re-fuzz methodology
 
-### Severity
-CRASH — unhandled `ValueError` (same root cause as F-1)
+Three layers of adversarial coverage, all independent of the prior QA:
 
-### Trigger
-```bash
-echo '{"name": "t", "inputSchema": "x"}' | mcpschema convert --provider openai --input -
-```
+1. **Prior CRASH repros** — 8 inputs lifted verbatim from the prior
+   `FUZZING_REPORT.md` (3bc5016). These MUST be silent now.
+2. **Standard adversarial input list** — the 8 inputs specified in
+   re-QA task body check #9 (empty dict, type=int, type=None,
+   properties=list, items=string, unicode names, deeply nested depth 7,
+   1MB+ payload).
+3. **Execution surface** — each input is pushed through:
+   - `tool_from_dict` construction
+   - 6 provider adapters (`to_openai_tool`, `to_anthropic_tool`,
+     `to_gemini_tool`, `to_ollama_tool`, `to_deepseek_tool`,
+     `to_mistral_tool`)
+   - `python -m mcpschema.cli convert --provider <X> --input '<json>'`
+     for all 6 providers (the CLI convert surface)
 
-### Root Cause
-`cli.py` line 84:
-```python
-return [tool_from_dict(item) if isinstance(item, dict) else item for item in payload]
-```
-
-`tool_from_dict` is called unconditionally on every dict item, and F-1's bug lives inside `tool_from_dict`.
-
-### Fix
-Same as F-1 — fix `tool_from_dict` and this is resolved.
-
----
-
-## F-3 (CRASH) — `_normalize_schema`: `TypeError` when `type` field is a list
-
-### Severity
-CRASH — unhandled `TypeError: unhashable type: 'list'`
-
-### Trigger
-```python
-from mcpschema._schema import _normalize_schema, _OPENAI_TYPES
-_normalize_schema({"type": []}, _OPENAI_TYPES)
-```
-
-### Root Cause
-`_schema.py` line 106:
-```python
-out: dict[str, Any] = {"type": type_map.get(schema.get("type", "object"), type_map["object"])}
-```
-
-`schema.get("type")` returns `[]` (a list). Then `type_map.get([], ...)` is called. Since `dict` keys must be hashable, looking up a list in a dict raises `TypeError: unhashable type: 'list'`.
-
-### Affected Entry Points
-All 6 provider adapters (`to_openai_tool`, `to_anthropic_tool`, etc.) call one of `build_openai_function`, `build_anthropic_input_schema`, or `build_gemini_parameters`, all of which call `_normalize_schema`. Any MCP tool with a list as its `type` field triggers this crash.
-
-### Fix
-Guard against non-string types:
-```python
-raw_type = schema.get("type") if isinstance(schema.get("type"), str) else "object"
-out = {"type": type_map.get(raw_type, type_map["object"])}
-```
+Adversarial criterion: graceful behavior (silent coercion, empty schema,
+or documented error message) — NOT a stack trace.
 
 ---
 
-## F-4 (LOW) — `_normalize_property`: Non-dict `items`/`properties` silently ignored
+## Prior CRASH repros — all silent on commit 25cfd7a
 
-### Severity
-LOW — not a crash; silent data loss
+| ID | Input | Adapter | CLI |
+|---|---|---|---|
+| F-1 | `tool_from_dict({'name':'foo','inputSchema':'not_a_dict'})` | OK (coerced to `inputSchema={}`) | OK |
+| F-1b | `tool_from_dict({'name':'foo','inputSchema':[('k','v')]})` | OK (coerced to `inputSchema={}`) | OK |
+| F-1c | `tool_from_dict({'name':'foo','inputSchema':42})` | OK (coerced to `inputSchema={}`) | OK |
+| F-3 | `tool_from_dict({'name':'x','inputSchema':{'type':[],'properties':{}}})` | OK (`type` coerced to `"object"`) | OK |
+| F-3b | `tool_from_dict({'name':'x','inputSchema':{'type':['string','null'],'properties':{}}})` | OK (`type` coerced to `"object"`) | OK |
+| F-3c | `tool_from_dict({'name':'x','inputSchema':{'type':{'foo':'bar'},'properties':{}}})` | OK (`type` coerced to `"object"`) | OK |
+| F-NEW-2 | `tool_from_dict({'name':'x','inputSchema':{'type':'object','properties':'string'}})` then `to_ollama_tool(...)` | OK (`properties` coerced to `{}`) | OK |
+| F-NEW-2b | `tool_from_dict({'name':'x','inputSchema':{'type':'object','properties':[1,2,3]}})` then `to_ollama_tool(...)` | OK (`properties` coerced to `{}`) | OK |
 
-### Trigger
-```python
-from mcpschema._schema import _normalize_property, _OPENAI_TYPES
-_normalize_property({"type": "array", "items": "not_a_dict"}, _OPENAI_TYPES)
-# → {"type": "array"}  — "items" silently dropped
-_normalize_property({"type": "object", "properties": 123}, _OPENAI_TYPES)
-# → {"type": "object"}  — "properties" silently dropped
-```
-
-### Root Cause
-The `isinstance(prop["items"], dict)` and `isinstance(prop["properties"], dict)` checks in `_normalize_property` return `False` for non-dict values, so those keys are silently omitted from output.
-
-### Fix
-Either validate and raise a descriptive error, or document this as intentional coercion behavior.
+All 8 prior CRASH repros produce graceful output (empty `properties`,
+default `"object"` type, empty `inputSchema`) on every public API path.
 
 ---
 
-## F-5 (LOW) — `_resolve_provider`: Trailing whitespace in provider name bypasses validation
+## Standard adversarial input list — all silent on commit 25cfd7a
 
-### Severity
-LOW — no crash; bypass of input validation
+| Input | Adapters | CLI |
+|---|---|---|
+| `{}` empty dict (wrapped as `{'name':'t','description':'d','inputSchema':{}}`) | OK | OK |
+| `{'type':123}` (int where string expected) | OK (coerced to `"object"`) | OK |
+| `{'type':None}` | OK (coerced to `"object"`) | OK |
+| `{'properties':[]}` (list where dict expected) | OK (coerced to `{}`) | OK |
+| `{'items':'string'}` (string where dict expected) | OK (silently ignored, doc'd behavior) | OK |
+| unicode name `üñîçødé_名前_🚀` | OK | OK |
+| deeply nested adversarial nesting (depth 7) | OK (recursive `_normalize_property` handles it) | OK |
+| 1MB+ payload (`description='x' * (1024*1024+100)`) | OK (serialization handles big strings) | n/a (skipped to keep CLI argv small) |
 
-### Trigger
-```python
-from mcpschema import convert
-convert({"name": "t", "inputSchema": {}}, "openai ")  # trailing space
-# → Returns result instead of raising ValueError
-```
-
-### Root Cause
-`adapters.py` line 94:
-```python
-key = name.lower().strip()
-fn = PROVIDERS.get(key)
-```
-
-Actually, wait — `.strip()` IS called. So `"openai "` should be stripped to `"openai"`. Let me recheck...
-
-Actually the test showed `"openai "` DID NOT raise. This means `PROVIDERS.get("openai ")` returns something even though `"openai "` with a space is not a key. Wait — let me re-read the code:
-
-```python
-def _resolve_provider(name: str) -> Callable[[Any], dict[str, Any]]:
-    key = name.lower().strip()  # "openai " -> "openai"
-    fn = PROVIDERS.get(key)     # should find "openai" ✓
-```
-
-Hmm, my test showed it DID NOT raise. Let me re-examine. In the fuzzer, the bad provider names were generated by `mutate_str()` which added whitespace. But maybe the specific test case was `"openai "` which would strip to `"openai"` and match...
-
-Wait, I need to re-check. The test said `"openai "`: did NOT raise. But if `.strip()` is applied, `"openai ".strip()` = `"openai"` which IS in PROVIDERS. So this is actually CORRECT behavior — `"openai "` should resolve to the `"openai"` provider after stripping. The test was wrong in my PoC.
-
-Let me verify: `"openai "` with a trailing space, lowercased and stripped becomes `"openai"`, which is in PROVIDERS. So it should NOT raise — it's a valid call. The behavior is correct.
-
-This means F-5 is NOT a valid finding. Let me re-check what the fuzzer was reporting...
-
-Actually, looking at the fuzzer code, `bad_argv_templates` includes `["mcpschema", "convert", "--provider", mutate_str("openai"), "--input", "{}"]`. If `mutate_str("openai")` returns `"openai"` (no mutation) or `"openai "` or `" OPENAI"`, then:
-- `"openai"` → strip → `"openai"` → found → no ValueError (this is expected!)
-- `"OPENAI"` → strip → `"openai"` → found → no ValueError
-- `" openai"` → strip → `"openai"` → found → no ValueError
-
-So actually these don't raise ValueError because they normalize to a valid provider. The ones that do raise are `"xyz"` and similar that don't normalize to any known provider.
-
-So F-5 is NOT a bug. The strip+lower normalization is working correctly. The fuzzer was mis-categorizing these as "unexpected did NOT raise" when actually it was correct.
+All 8 standard inputs produce graceful output.
 
 ---
 
-## Surfaces Covered
+## One nuance worth flagging (NOT a finding)
 
-### Surface A — Core Library (`mcpschema/adapters.py`, `mcpschema/tool.py`, `mcpschema/_schema.py`)
-- All 6 provider adapters (`to_openai_tool`, `to_anthropic_tool`, `to_gemini_tool`, `to_ollama_tool`, `to_deepseek_tool`, `to_mistral_tool`)
-- `convert()` and `convert_all()` dispatch
-- `tool_from_dict()` constructor
-- `MCPTool` dataclass (including frozen=True edge cases)
-- All internal helpers: `_normalize_property`, `_normalize_schema`, `_get_schema`, `_get_name`, `_get_description`, `build_openai_function`, `build_anthropic_input_schema`, `build_gemini_parameters`, `build_ollama_system_prompt_suffix`
-- Duck-typed inputs (any object with name/description/inputSchema)
-- Non-dict inputs (None, int, string, list, set, etc.)
-- 300+ mutations on schema structures, property types, required arrays
-
-### Surface B — CLI (`mcpschema/cli.py`)
-- `main(argv)` entrypoint
-- All subcommands: `convert`, `providers`
-- `--input` reading from CLI argument and stdin (`-`)
-- `--compact` flag
-- `--provider` validation
-- `_read_input()` JSON parsing
-- `_normalize_tools()` dispatch
-- `_build_parser()` argparse structure
-- 200+ argv and input mutations
-
-### Surface C — Integration / Round-trip
-- Very large schemas (200 properties)
-- Deeply nested schemas (5, 10, 20, 50 levels)
-- Empty schemas (`{}`, `{"type": "object"}`, `{"properties": {}}`)
-- `required` with non-string entries (int, None)
-- `enum` with mixed types (int, string, None, list)
-- 50+ integration mutations
-
----
-
-## Benchmark Verification
-
-Benchmarks run successfully against the hand-written baseline.
-
-| Workload | mc mean µs | bw mean µs | Winner |
-|----------|-----------|-----------|--------|
-| 1 tool, 1 param, OpenAI | 3.6 | 1.8 | baseline |
-| 1 tool, 5 params, OpenAI | 2.1 | 1.4 | baseline |
-| 1 tool, 20 params, OpenAI | 2.0 | 2.4 | mcpschema |
-| 50 tools, OpenAI batch | 22.3 | 31.7 | **mcpschema** |
-| 50 tools, Anthropic batch | 18.8 | 29.5 | **mcpschema** |
-
-Benchmark claims are accurate. mcpschema wins on batch conversions.
-
----
-
-## Crash Reproduction
-
-All crashes reproduce deterministically. Run:
-```bash
-python3 /tmp/test_poc.py   # or /root/projects/mcpschema/fuzz_adversary.py
+The re-QA task body's literal snippet for F-3:
 ```
+python3 -c "from mcpschema._schema import _normalize_schema; print(_normalize_schema({'type': []}, None))"
+```
+raises `AttributeError: 'NoneType' object has no attribute 'get'` when
+run against the private `_normalize_schema` function with `type_map=None`.
+
+This is **not** a real adversarial-input bug because:
+
+- `_normalize_schema` is a private helper (leading underscore, not in
+  `__all__`).
+- The function's signature declares `type_map: dict[str, str]` —
+  passing `None` violates the type contract.
+- Every public-API caller (`build_openai_function`,
+  `build_anthropic_input_schema`, `build_gemini_parameters`,
+  `build_ollama_system_prompt_suffix`) passes a real type_map
+  (`_OPENAI_TYPES` or `_GEMINI_TYPES`).
+- The actual user-facing F-3 reproduction
+  (`tool_from_dict({'name':'x','inputSchema':{'type':[],'properties':{}}})`
+  → `to_openai_tool(...)`) is silent and produces `{"type":"object",
+  "properties":{}}` as expected.
+
+If the project wants Invariant 21 to apply to private helpers as well,
+a one-line `if type_map is None: type_map = {"object": "object"}` guard
+would close it. This is **optional polish**, not a blocker.
 
 ---
 
-## Recommended Fixes (Priority Order)
+## Conclusion
 
-1. **F-1 + F-2**: Fix `tool_from_dict` in `tool.py`:
-   ```python
-   # Replace:
-   inputSchema=dict(raw.get("inputSchema") or {}),
-   # With:
-   _schema = raw.get("inputSchema")
-   inputSchema=dict(_schema) if isinstance(_schema, dict) else {},
-   ```
+I tried the 8 prior CRASH repros from the prior `FUZZING_REPORT.md` and
+the 8 standard adversarial inputs from the re-QA task body, on every
+public API path (tool_from_dict + 6 provider adapters + CLI convert
+for all 6 providers) and found **nothing** — every adversarial input
+produces graceful behavior.
 
-2. **F-3**: Fix `_normalize_schema` in `_schema.py`:
-   ```python
-   # Replace:
-   out: dict[str, Any] = {"type": type_map.get(schema.get("type", "object"), type_map["object"])}
-   # With:
-   raw_type = schema.get("type", "object")
-   out_type = type_map.get(raw_type, type_map["object"]) if isinstance(raw_type, str) else type_map["object"]
-   out: dict[str, Any] = {"type": out_type}
-   ```
+**No new findings.** Prior CRASHes are silent. Test suite is 145/145
+green. Fresh-venv install + CLI smoke clean.
 
-3. **F-4**: Add validation or document intentional coercion.
+---
+
+VERDICT: SHIP
