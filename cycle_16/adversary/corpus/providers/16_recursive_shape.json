@@ -1,0 +1,1 @@
+{"name": "t", "inputSchema": {"type": "object", "properties": {"node": {"type": "object", "properties": {"child": {"type": "object", "properties": {"child": {"type": "string"}}}}}}}}

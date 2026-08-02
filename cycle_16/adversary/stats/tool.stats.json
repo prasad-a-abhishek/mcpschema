@@ -1,0 +1,25 @@
+{
+  "surface": "tool",
+  "harness": "harness_tool.py",
+  "iterations_target": 50000,
+  "iterations_completed": 50000,
+  "wall_time_seconds": 0.0,
+  "last_pulse_iter": 0,
+  "last_exec_per_sec": null,
+  "seed_corpus": {
+    "file_count": 24,
+    "min_bytes": 2,
+    "max_bytes": 1098064,
+    "total_bytes": 1128269,
+    "on_disk_count": 24
+  },
+  "sanitizer_warnings_present": true,
+  "no_coverage_instrumentation_warning": true,
+  "crash_count": 0,
+  "crash_files": [],
+  "crash_metadata_files": [],
+  "hang_count": 0,
+  "oom_count": 0,
+  "log_file": "cycle_16/adversary/logs/tool.log",
+  "command": "/usr/local/bin/python3 harness_tool.py -atheris_runs=50000 -max_len=8192 -artifact_prefix=crashes/ corpus_tool/"
+}

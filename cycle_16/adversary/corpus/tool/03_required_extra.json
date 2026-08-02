@@ -1,0 +1,1 @@
+{"name": "t", "inputSchema": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "integer"}}, "required": ["a", "b", "c"]}}

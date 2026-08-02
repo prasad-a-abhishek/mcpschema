@@ -1,0 +1,1 @@
+{"name":"t","inputSchema":{"type":"object","properties":{"x":{"type":"string","enum":["a",42,null,{"nested":true},[1,2]]}}}}

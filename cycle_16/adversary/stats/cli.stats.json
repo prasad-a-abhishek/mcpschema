@@ -1,0 +1,25 @@
+{
+  "surface": "cli",
+  "harness": "harness_cli.py",
+  "iterations_target": 1000,
+  "iterations_completed": 1000,
+  "wall_time_seconds": 104.0,
+  "last_pulse_iter": 512,
+  "last_exec_per_sec": 9,
+  "seed_corpus": {
+    "file_count": 25,
+    "min_bytes": 2,
+    "max_bytes": 1098064,
+    "total_bytes": 1128260,
+    "on_disk_count": 26
+  },
+  "sanitizer_warnings_present": true,
+  "no_coverage_instrumentation_warning": true,
+  "crash_count": 0,
+  "crash_files": [],
+  "crash_metadata_files": [],
+  "hang_count": 0,
+  "oom_count": 0,
+  "log_file": "cycle_16/adversary/logs/cli.log",
+  "command": "/usr/local/bin/python3 harness_cli.py -atheris_runs=1000 -max_len=8192 -artifact_prefix=crashes/ corpus_cli/"
+}

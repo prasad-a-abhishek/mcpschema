@@ -1,0 +1,5 @@
+# Runtime / build artifacts — keep directories, reject generated contents.
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

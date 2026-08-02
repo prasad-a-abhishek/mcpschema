@@ -1,0 +1,1 @@
+[{"name": "a", "inputSchema": {"type": "object"}}, {"name": "b", "inputSchema": {"type": "string"}}, "not a dict", null, 42]

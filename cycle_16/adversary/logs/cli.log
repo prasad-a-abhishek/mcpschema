@@ -1,0 +1,25 @@
+=== CMD ===
+/usr/local/bin/python3 harness_cli.py -atheris_runs=1000 -max_len=8192 -artifact_prefix=crashes/ corpus_cli/
+=== EXIT 0 ===
+=== ELAPSED 103.80s (timed_out=False) ===
+=== STDOUT ===
+
+=== STDERR ===
+INFO: Using built-in libfuzzer
+WARNING: Failed to find function "__sanitizer_acquire_crash_state".
+WARNING: Failed to find function "__sanitizer_print_stack_trace".
+WARNING: Failed to find function "__sanitizer_set_death_callback".
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3761997378
+INFO:       25 files found in corpus_cli/
+INFO: seed corpus: files: 25 min: 2b max: 1098064b total: 1128260b rss: 44Mb
+#26	INITED exec/s: 13 rss: 45Mb
+WARNING: no interesting inputs were found so far. Is the code instrumented for coverage?
+This may also happen if the target rejected all inputs we tried so far
+#32	pulse  corp: 1/1b lim: 4 exec/s: 10 rss: 45Mb
+#64	pulse  corp: 1/1b lim: 4 exec/s: 10 rss: 45Mb
+#128	pulse  corp: 1/1b lim: 4 exec/s: 9 rss: 45Mb
+#256	pulse  corp: 1/1b lim: 6 exec/s: 9 rss: 45Mb
+#512	pulse  corp: 1/1b lim: 8 exec/s: 9 rss: 45Mb
+Done 1000 in 104 second(s)
+

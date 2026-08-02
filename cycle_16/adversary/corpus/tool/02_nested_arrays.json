@@ -1,0 +1,1 @@
+{"name": "t", "inputSchema": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"nested": {"type": "array", "items": {"type": "string"}}}}}}}}
